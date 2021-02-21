@@ -1,0 +1,77 @@
+    public class SpProviderRepository : ISpProviderRepository
+    {
+        private readonly EdictContext _dbContext;
+
+        public SpProviderRepository(EdictContext context)
+        {
+            _dbContext = context;
+        }
+        /// <summary>
+        ///   فرآخوانی اس پی در صورتی که تمامی پارامترهای یا فرمت آنها رشته باشد 
+        /// </summary>
+        /// <param name="spName">نام اس پی</param>
+        /// <param name="args">پارامترها</param>
+        /// <returns></returns>
+        public async Task<IEnumerable<IDictionary<string, object>>>
+            GetSp(string spName, params object[] args)
+        {
+            return
+                await SelectQuery(
+                    o =>
+                        {
+                            o.CommandType = CommandType.Text;
+                            o.CommandText = $"{spName} {string.Join(',', args.Where(x => x != null).Select(x => $"'{x}'"))}";
+                        }
+                );
+        }
+
+        /// <summary>
+        /// فراخوانی با پارامتر 
+        /// </summary>
+        /// <param name="spName">نام اس پی</param>
+        /// <param name="args">پارامترها</param>
+        /// <returns></returns>
+        public async Task<IEnumerable<IDictionary<string, object>>>
+            GetSp(string spName, params IDataParameter[] args)
+        {
+            return
+                  await SelectQuery(
+                      o =>
+                      {
+                          o.CommandType = CommandType.StoredProcedure;
+                          foreach (IDataParameter para in args)
+                          {
+                              o.Parameters.Add(para);
+                          }
+                      }
+                  );
+        }
+
+
+
+        public  async Task<IEnumerable<T>> GetSp<T>(string command)where T:class
+            =>await _dbContext.Set<T>().FromSqlRaw($"{command}").ToListAsync();
+
+        #region Sp  Command Handler
+
+        private async Task<IEnumerable<IDictionary<string, object>>>
+            SelectQuery(
+             Action<SqlCommand> commandFunc)
+        {
+            var connection = (SqlConnection)_dbContext.Database.GetDbConnection();
+            var command = connection.CreateCommand();
+            commandFunc(command);
+            List<IDictionary<string, object>> d = new List<IDictionary<string, object>>();
+            await connection.OpenAsync();
+            using (var reader = await command.ExecuteReaderAsync())
+            {
+                var names = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName);
+                foreach (IDataRecord record in reader as IEnumerable)
+                {
+                    d.Add(names.ToDictionary(n => n, n => record[n]));
+                }
+                return d;
+            }
+        }
+        #endregion
+    }
